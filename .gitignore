@@ -1,0 +1,25 @@
+# Python-generated files
+__pycache__/
+.DS_Store
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Vector database
+chroma_db/
+
+# Document tracking
+.docling_hashes.json
+
+# Local config
+.claude/
+.serena/
+
+# Data files (users add their own, keep directory structure)
+data/*
+!data/.gitkeep
