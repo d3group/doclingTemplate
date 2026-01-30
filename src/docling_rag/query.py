@@ -4,6 +4,8 @@ from pathlib import Path
 
 import chromadb
 
+from docling_rag.embeddings import get_embedding_function
+
 CHROMA_DIR = Path("chroma_db")
 
 
@@ -24,7 +26,10 @@ def query(question: str, n_results: int = 5) -> list[dict]:
     client = chromadb.PersistentClient(path=str(CHROMA_DIR))
 
     try:
-        collection = client.get_collection("documents")
+        collection = client.get_collection(
+            "documents",
+            embedding_function=get_embedding_function(),
+        )
     except ValueError:
         # Collection doesn't exist
         return []

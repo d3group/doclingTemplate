@@ -2,14 +2,57 @@
 
 import hashlib
 import json
+import tempfile
 from pathlib import Path
 
 import chromadb
 from docling.chunking import HybridChunker
+from docling.datamodel.base_models import InputFormat
 from docling.document_converter import DocumentConverter
+from docling_core.transforms.chunker.tokenizer.huggingface import HuggingFaceTokenizer
+from transformers import AutoTokenizer
+from transformers import logging as tf_logging
 
-# Supported file extensions
-SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".pptx", ".xlsx", ".html", ".htm", ".png", ".jpg", ".jpeg"}
+from docling_rag.embeddings import EMBED_MODEL_ID, MAX_TOKENS, get_embedding_function
+
+# Suppress transformers token length warnings (we handle chunk sizing ourselves)
+tf_logging.set_verbosity_error()
+
+# Document formats (native Docling support)
+DOCUMENT_EXTENSIONS = {".pdf", ".docx", ".pptx", ".xlsx", ".html", ".htm", ".png", ".jpg", ".jpeg"}
+
+# Text/code formats (converted to markdown for processing)
+TEXT_EXTENSIONS = {
+    ".md",
+    ".txt",
+    ".py",
+    ".js",
+    ".ts",
+    ".json",
+    ".yaml",
+    ".yml",
+    ".toml",
+    ".sh",
+    ".css",
+}
+
+# Language hints for code syntax highlighting in markdown
+LANG_MAP = {
+    ".py": "python",
+    ".js": "javascript",
+    ".ts": "typescript",
+    ".json": "json",
+    ".yaml": "yaml",
+    ".yml": "yaml",
+    ".toml": "toml",
+    ".sh": "bash",
+    ".css": "css",
+    ".html": "html",
+    ".htm": "html",
+}
+
+# All supported extensions
+SUPPORTED_EXTENSIONS = DOCUMENT_EXTENSIONS | TEXT_EXTENSIONS
 
 # Paths
 DATA_DIR = Path("data")
@@ -24,6 +67,24 @@ def get_file_hash(file_path: Path) -> str:
         for chunk in iter(lambda: f.read(8192), b""):
             hasher.update(chunk)
     return hasher.hexdigest()
+
+
+def convert_text_to_markdown(file_path: Path) -> str:
+    """Convert a text/code file to markdown format for Docling processing."""
+    content = file_path.read_text(encoding="utf-8", errors="replace")
+    ext = file_path.suffix.lower()
+    lang = LANG_MAP.get(ext, "")
+
+    # For markdown files, return as-is
+    if ext == ".md":
+        return content
+
+    # For plain text, just return content
+    if ext == ".txt":
+        return content
+
+    # For code files, wrap in a code block with filename header
+    return f"# {file_path.name}\n\n```{lang}\n{content}\n```"
 
 
 def load_hashes() -> dict[str, str]:
@@ -97,6 +158,7 @@ def ingest_documents(data_dir: Path = DATA_DIR, verbose: bool = True) -> dict[st
     collection = client.get_or_create_collection(
         name="documents",
         metadata={"hnsw:space": "cosine"},
+        embedding_function=get_embedding_function(),
     )
 
     # Remove chunks from deleted files
@@ -109,8 +171,22 @@ def ingest_documents(data_dir: Path = DATA_DIR, verbose: bool = True) -> dict[st
             collection.delete(ids=existing["ids"])
 
     # Process new/changed files
-    converter = DocumentConverter()
-    chunker = HybridChunker()
+    converter = DocumentConverter(
+        allowed_formats=[
+            InputFormat.PDF,
+            InputFormat.DOCX,
+            InputFormat.PPTX,
+            InputFormat.XLSX,
+            InputFormat.HTML,
+            InputFormat.IMAGE,
+            InputFormat.MD,
+        ]
+    )
+    tokenizer = HuggingFaceTokenizer(
+        tokenizer=AutoTokenizer.from_pretrained(EMBED_MODEL_ID),
+        max_tokens=MAX_TOKENS,
+    )
+    chunker = HybridChunker(tokenizer=tokenizer)
     chunks_added = 0
 
     for file_path in new_or_changed:
@@ -124,8 +200,22 @@ def ingest_documents(data_dir: Path = DATA_DIR, verbose: bool = True) -> dict[st
             collection.delete(ids=existing["ids"])
 
         try:
-            # Convert document
-            result = converter.convert(file_path)
+            # Handle text/code files by converting to markdown first
+            ext = file_path.suffix.lower()
+            if ext in TEXT_EXTENSIONS:
+                md_content = convert_text_to_markdown(file_path)
+                # Create temp markdown file for Docling
+                with tempfile.NamedTemporaryFile(
+                    mode="w", suffix=".md", delete=False, encoding="utf-8"
+                ) as tmp:
+                    tmp.write(md_content)
+                    tmp_path = Path(tmp.name)
+                try:
+                    result = converter.convert(tmp_path)
+                finally:
+                    tmp_path.unlink()  # Clean up temp file
+            else:
+                result = converter.convert(file_path)
             doc = result.document
 
             # Chunk the document
