@@ -11,6 +11,7 @@ dependencies = [
     "docling",
     "chromadb",
     "transformers",
+    "sentence-transformers",
     "curl-cffi>=0.14.0",
 ]
 
