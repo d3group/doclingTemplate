@@ -1,141 +1,154 @@
-# Docling RAG Template
+# Docling RAG
 
-Local RAG (Retrieval-Augmented Generation) system that parses documents and enables semantic search. **100% free** - all models run locally.
+Local RAG (Retrieval-Augmented Generation) system using [Docling](https://github.com/DS4SD/docling) for document parsing and [LanceDB](https://lancedb.com/) for vector storage. All models run locally — no API keys, no cloud, no costs.
 
-## Features
+## Setup
 
-- **Document parsing**: PDF, DOCX, PPTX, XLSX, HTML, images (via [Docling](https://github.com/DS4SD/docling))
-- **Vector storage**: Local ChromaDB database
-- **Embeddings**: sentence-transformers (runs locally, no API costs)
-- **Change detection**: Only re-processes new/modified files
-- **Scholar download**: Bulk download papers from Google Scholar author pages
+### Prerequisites
 
-## Quick Start
+- Python 3.11+
+- [uv](https://docs.astral.sh/uv/) package manager
+
+### Installation
 
 ```bash
-# Install dependencies
+git clone <repo-url>
+cd doclingProject
 uv sync
+```
 
-# Add documents to data/ (any structure)
-cp your-document.pdf data/
+### First Run
 
-# Ingest documents
-uv run -m docling_rag ingest
+```bash
+# Add your documents
+cp your-documents/* data/
+
+# Ingest them into the knowledge base
+uv run docling-rag ingest
 
 # Query
-uv run -m docling_rag query "What is this document about?"
+uv run docling-rag query "What is this document about?"
 
-# View statistics
-uv run -m docling_rag stats
+# Check what's indexed
+uv run docling-rag stats
 ```
 
 ## Creating a New Project
 
-Use this as a template for topic-specific knowledge bases:
+Create separate knowledge bases for different topics:
 
 ```bash
-# From this directory, create a new project
-uv run -m docling_rag init ~/projects/rag-my-topic
-
-# Set up the new project
-cd ~/projects/rag-my-topic
+uv run docling-rag init ~/projects/my-topic
+cd ~/projects/my-topic
 uv sync
-
-# Add your documents and start using it
 cp ~/Documents/relevant-files/* data/
-uv run -m docling_rag ingest
+uv run docling-rag ingest
 ```
 
-## Commands
+Each project gets its own vector database, config, and document store.
 
-| Command | Description |
-|---------|-------------|
-| `uv run -m docling_rag ingest` | Process documents in `data/` |
-| `uv run -m docling_rag query "..."` | Search the knowledge base |
-| `uv run -m docling_rag query "..." -n 10` | Return more results (default: 5) |
-| `uv run -m docling_rag stats` | Show database statistics |
-| `uv run -m docling_rag init <path>` | Create a new project from template |
-| `uv run -m docling_rag download <url>` | Download papers from Google Scholar |
-| `uv run -m docling_rag download <url> --max 10` | Limit number of papers |
+## CLI Reference
 
-## Project Structure
-
-```
-project/
-├── data/                  # Your documents (any structure)
-├── chroma_db/             # Vector database (auto-created, gitignored)
-├── .docling_hashes.json   # Change tracking (auto-created, gitignored)
-└── src/docling_rag/       # Source code
+```bash
+uv run docling-rag ingest                      # Ingest data/ directory
+uv run docling-rag ingest --file /path/to/doc  # Ingest a single file from anywhere
+uv run docling-rag query "your question"       # Search the knowledge base
+uv run docling-rag query "..." -n 10           # Return more results (default: 5)
+uv run docling-rag stats                       # Show statistics
+uv run docling-rag init <path>                 # Create new project from template
 ```
 
-## Supported File Types
+## MCP Server
 
-- PDF (`.pdf`)
-- Word (`.docx`)
-- PowerPoint (`.pptx`)
-- Excel (`.xlsx`)
-- HTML (`.html`, `.htm`)
-- Images (`.png`, `.jpg`, `.jpeg`)
+The MCP server lets Claude Code, Claude Desktop, or any MCP-compatible tool query your knowledge base directly.
+
+### Claude Code (same project)
+
+The included `.mcp.json` auto-configures the server. Run `/mcp` in Claude Code or restart the session.
+
+### Claude Code (different project)
+
+Create a `.mcp.json` in the other project pointing back to this one:
+
+```json
+{
+  "mcpServers": {
+    "docling-rag": {
+      "command": "uv",
+      "args": ["--directory", "/absolute/path/to/doclingProject", "run", "docling-rag-mcp"]
+    }
+  }
+}
+```
+
+### Claude Desktop
+
+Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "docling-rag": {
+      "command": "/opt/homebrew/bin/uv",
+      "args": ["--directory", "/absolute/path/to/doclingProject", "run", "docling-rag-mcp"]
+    }
+  }
+}
+```
+
+Use the **full path to `uv`** (find with `which uv`) — GUI apps don't share your terminal's PATH.
+
+### Available MCP Tools
+
+| Tool | Description |
+|------|-------------|
+| `query_knowledge` | Search the knowledge base |
+| `ingest_documents_tool` | Ingest documents from a directory |
+| `ingest_file_tool` | Ingest a single file from any path |
+| `get_database_stats` | Get database statistics |
+| `list_indexed_sources` | List all indexed documents |
+| `delete_document` | Remove a document from the index |
+
+## Configuration
+
+Copy `rag.toml.example` to `rag.toml` to customize settings. Defaults work out of the box.
+
+```toml
+data_dir = "data"
+lancedb_dir = "lancedb_data"
+embed_model = "Snowflake/snowflake-arctic-embed-m-v2.0"
+max_tokens = 1500
+enable_reranking = true
+enable_hybrid_search = true
+```
+
+### Contextual Retrieval (Optional)
+
+Contextual retrieval uses a local LLM to enrich each chunk with document context before embedding. This significantly improves search quality ([Anthropic reports](https://www.anthropic.com/news/contextual-retrieval) 35-67% fewer retrieval failures).
+
+Requires [Ollama](https://ollama.com/) running locally:
+
+```bash
+brew install ollama
+brew services start ollama
+ollama pull qwen2.5:1.5b
+```
+
+Then enable in `rag.toml`:
+
+```toml
+enable_contextual_retrieval = true
+ollama_model = "qwen2.5:1.5b"
+```
+
+Re-ingest your documents after enabling. If Ollama isn't running, ingestion falls back to raw chunks automatically.
 
 ## How It Works
 
-1. **Ingest**: Documents are parsed with Docling, chunked semantically, and stored as embeddings in ChromaDB
-2. **Query**: Your question is embedded and compared against stored chunks using cosine similarity
-3. **Results**: Returns the most relevant chunks with source file and page references
+1. **Ingest** — Documents are parsed with Docling, chunked semantically, and stored as embeddings in LanceDB
+2. **Search** — Queries use hybrid search (vector similarity + BM25 keyword matching) with cross-encoder reranking
+3. **Results** — Returns the most relevant chunks with source file and page references
 
-## Downloading Papers from Google Scholar
+## Supported File Types
 
-Bulk download an author's papers directly into your `data/` folder:
-
-```bash
-# Download all available papers from an author
-uv run -m docling_rag download "https://scholar.google.com/citations?user=AUTHOR_ID"
-
-# Limit to first 20 papers
-uv run -m docling_rag download "https://scholar.google.com/citations?user=AUTHOR_ID" --max 20
-
-# Only open-access (no Sci-Hub)
-uv run -m docling_rag download "https://scholar.google.com/citations?user=AUTHOR_ID" --no-scihub
-
-# Then ingest them
-uv run -m docling_rag ingest
-```
-
-Downloads try open-access sources first (arXiv, preprints), then falls back to Sci-Hub for paywalled papers.
-
-### Setting Up Tor (Recommended)
-
-Google Scholar blocks automated requests. Install and start Tor to bypass this:
-
-```bash
-# Install Tor (macOS)
-brew install tor
-
-# Start Tor
-brew services start tor
-
-# Now downloads will automatically use Tor
-uv run -m docling_rag download "https://scholar.google.com/citations?user=..."
-```
-
-The download command auto-detects Tor on port 9050 and uses it with browser TLS fingerprint impersonation (via curl_cffi) to avoid detection.
-
-If you get blocked:
-- Make sure Tor is running: `brew services start tor`
-- Wait a few minutes and retry
-- Use a VPN as alternative
-
-## Usage with Claude Code
-
-Just ask questions about your documents:
-
-```
-You: "What does the paper say about performance bounds?"
-Claude: [Runs query, synthesizes answer with citations]
-```
-
-## Tips
-
-- **Separate projects by topic** - Create different RAG projects for different domains to keep results focused
-- **Re-run ingest after changes** - The system detects modified files automatically
-- **Use specific queries** - "What are the three main contributions?" works better than "summarize"
+PDF, DOCX, PPTX, XLSX, HTML, images (OCR), Markdown, plain text, and code files (`.py`, `.js`, `.ts`, `.json`, `.yaml`, `.toml`, `.sh`, `.css`).

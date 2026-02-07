@@ -1,13 +1,19 @@
 """Command-line interface for Docling RAG."""
 
 import argparse
+import logging
 import shutil
 import sys
 from pathlib import Path
 
-from docling_rag.download import download_author_papers
-from docling_rag.ingest import ingest_documents
-from docling_rag.query import format_results, query
+from docling_rag.core import format_results, get_stats, ingest_documents, ingest_file, query
+
+# Configure logging for CLI usage (show INFO+ from our package)
+logging.basicConfig(format="%(message)s", level=logging.INFO)
+logging.getLogger("docling_rag").setLevel(logging.INFO)
+# Silence noisy third-party loggers
+for _name in ("lancedb", "httpx", "sentence_transformers", "transformers"):
+    logging.getLogger(_name).setLevel(logging.WARNING)
 
 
 def init_project(target_dir: Path) -> None:
@@ -32,6 +38,8 @@ def init_project(target_dir: Path) -> None:
         ".ruff.toml",
         ".gitignore",
         ".python-version",
+        ".mcp.json",
+        "rag.toml.example",
     ]
 
     for filename in files_to_copy:
@@ -62,53 +70,33 @@ def init_project(target_dir: Path) -> None:
     print(f"  cd {target}")
     print("  uv sync")
     print("  # Add documents to data/")
-    print("  uv run -m docling_rag ingest")
-    print("  uv run -m docling_rag query 'your question'")
+    print("  uv run docling-rag ingest")
+    print("  uv run docling-rag query 'your question'")
 
 
 def show_stats() -> None:
     """Show statistics about the current knowledge base."""
-    import chromadb
+    stats = get_stats()
 
-    chroma_dir = Path("chroma_db")
-
-    if not chroma_dir.exists():
+    if stats["total_chunks"] == 0:
         print("No knowledge base found. Run 'ingest' first.")
         return
 
-    client = chromadb.PersistentClient(path=str(chroma_dir))
-
-    try:
-        collection = client.get_collection("documents")
-        count = collection.count()
-
-        # Get unique sources
-        all_docs = collection.get(include=["metadatas"])
-        sources = set()
-        for meta in all_docs["metadatas"]:
-            if "source" in meta:
-                sources.add(meta["source"])
-
-        print("Knowledge Base Statistics")
-        print("─────────────────────────")
-        print(f"Total chunks:    {count}")
-        print(f"Total documents: {len(sources)}")
-        print()
-        if sources:
-            print("Documents:")
-            for src in sorted(sources):
-                # Count chunks per source
-                src_chunks = collection.get(where={"source": src})
-                print(f"  • {src} ({len(src_chunks['ids'])} chunks)")
-
-    except ValueError:
-        print("No documents ingested yet.")
+    print("Knowledge Base Statistics")
+    print("-------------------------")
+    print(f"Total chunks:    {stats['total_chunks']}")
+    print(f"Total documents: {stats['total_documents']}")
+    print()
+    if stats["sources"]:
+        print("Documents:")
+        for src in stats["sources"]:
+            print(f"  - {src['name']} ({src['chunks']} chunks)")
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(
         prog="docling-rag",
-        description="Local RAG system using Docling and ChromaDB",
+        description="Local RAG system using Docling and LanceDB",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -119,8 +107,9 @@ def main() -> int:
     # Ingest command
     ingest_parser = subparsers.add_parser("ingest", help="Ingest documents from data/ directory")
     ingest_parser.add_argument(
-        "--data-dir", default="data", help="Directory containing documents (default: data)"
+        "--data-dir", default=None, help="Directory containing documents (default: data)"
     )
+    ingest_parser.add_argument("--file", "-f", help="Ingest a single file from any path")
 
     # Query command
     query_parser = subparsers.add_parser("query", help="Query the knowledge base")
@@ -132,42 +121,20 @@ def main() -> int:
     # Stats command
     subparsers.add_parser("stats", help="Show knowledge base statistics")
 
-    # Download command
-    download_parser = subparsers.add_parser(
-        "download", help="Download papers from Google Scholar author page"
-    )
-    download_parser.add_argument("url", help="Google Scholar author profile URL")
-    download_parser.add_argument(
-        "--max", type=int, default=None, help="Maximum number of papers to download"
-    )
-    download_parser.add_argument(
-        "--output", default="data", help="Output directory (default: data)"
-    )
-    download_parser.add_argument(
-        "--no-scihub",
-        action="store_true",
-        help="Disable Sci-Hub fallback (only download open access papers)",
-    )
-
     args = parser.parse_args()
 
     if args.command == "init":
         init_project(args.path)
     elif args.command == "ingest":
-        ingest_documents(data_dir=args.data_dir)
+        if args.file:
+            ingest_file(file_path=args.file)
+        else:
+            ingest_documents(data_dir=args.data_dir)
     elif args.command == "query":
         results = query(args.question, n_results=args.num_results)
         print(format_results(results))
     elif args.command == "stats":
         show_stats()
-    elif args.command == "download":
-        download_author_papers(
-            scholar_url=args.url,
-            output_dir=args.output,
-            max_papers=args.max,
-            use_scihub=not args.no_scihub,
-        )
-
     return 0
 
 

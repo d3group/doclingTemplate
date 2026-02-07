@@ -11,10 +11,13 @@ wheels/
 .venv
 
 # Vector database
-chroma_db/
+lancedb_data/
 
 # Document tracking
 .docling_hashes.json
+
+# Parsed markdown cache
+.docling_cache/
 
 # Local config
 .claude/

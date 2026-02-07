@@ -1,0 +1,44 @@
+# Docling RAG Configuration
+# Copy this file to rag.toml to customize settings
+
+# Directory containing documents to ingest
+data_dir = "data"
+
+# Directory for LanceDB vector storage
+lancedb_dir = "lancedb_data"
+
+# Directory for cached parsed markdown (avoids re-parsing on re-embed)
+cache_dir = ".docling_cache"
+
+# File tracking document hashes for incremental ingestion
+hash_file = ".docling_hashes.json"
+
+# Embedding model (must match what was used during ingestion!)
+# Changing this requires re-ingesting all documents
+embed_model = "Snowflake/snowflake-arctic-embed-m-v2.0"
+
+# Maximum tokens per chunk (Arctic Embed v2 supports up to 8192)
+max_tokens = 1500
+
+# Default number of results for queries
+default_results = 5
+
+# Enable cross-encoder reranking for better result quality
+enable_reranking = true
+
+# Number of candidates to fetch before reranking (higher = better quality, slower)
+rerank_candidates = 20
+
+# Enable hybrid search (BM25 + vector) for keyword + semantic matching
+enable_hybrid_search = true
+
+# Contextual retrieval: prepend LLM-generated context to each chunk at ingestion time.
+# Requires Ollama running locally. Falls back gracefully if unavailable.
+# See: https://www.anthropic.com/news/contextual-retrieval
+enable_contextual_retrieval = false
+
+# Ollama model for chunk contextualization (small model recommended)
+ollama_model = "qwen2.5:1.5b"
+
+# Ollama API base URL
+ollama_base_url = "http://localhost:11434"

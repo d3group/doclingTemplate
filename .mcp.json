@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "docling-rag": {
+      "command": "uv",
+      "args": ["run", "docling-rag-mcp"]
+    }
+  }
+}

@@ -1,7 +1,7 @@
 [project]
 name = "docling-rag"
 version = "0.1.0"
-description = "Local RAG system using Docling for document parsing and ChromaDB for vector storage"
+description = "Local RAG system using Docling for document parsing and LanceDB for vector storage"
 readme = "README.md"
 authors = [
     { name = "Nikolai Stein", email = "nikolai.stein86@gmail.com" }
@@ -9,14 +9,16 @@ authors = [
 requires-python = ">=3.11"
 dependencies = [
     "docling",
-    "chromadb",
     "transformers",
     "sentence-transformers",
-    "curl-cffi>=0.14.0",
+    "fastmcp>=2.0.0",
+    "lancedb>=0.29.0",
+    "httpx>=0.28.1",
 ]
 
 [project.scripts]
 docling-rag = "docling_rag.cli:main"
+docling-rag-mcp = "docling_rag.mcp:run_server"
 
 [build-system]
 requires = ["uv_build>=0.8.15,<0.9.0"]
