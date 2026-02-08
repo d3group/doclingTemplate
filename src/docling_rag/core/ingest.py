@@ -38,6 +38,7 @@ TEXT_EXTENSIONS = {
     ".toml",
     ".sh",
     ".css",
+    ".tex",
 }
 
 # Language hints for code syntax highlighting in markdown
@@ -53,6 +54,7 @@ LANG_MAP = {
     ".css": "css",
     ".html": "html",
     ".htm": "html",
+    ".tex": "latex",
 }
 
 # All supported extensions
