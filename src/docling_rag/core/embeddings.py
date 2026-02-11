@@ -8,6 +8,7 @@ from docling_rag.core.config import get_config
 
 _embed_fn = None
 _cached_model_name: str | None = None
+_st_model_cache: dict = {}
 
 
 def get_device() -> str:
@@ -26,12 +27,15 @@ class DoclingEmbeddings(SentenceTransformerEmbeddings):
     def get_embedding_model(self):
         from sentence_transformers import SentenceTransformer
 
-        return SentenceTransformer(
-            self.name,
-            device=self.device,
-            trust_remote_code=self.trust_remote_code,
-            config_kwargs={"use_memory_efficient_attention": False},
-        )
+        cache_key = (self.name, self.device)
+        if cache_key not in _st_model_cache:
+            _st_model_cache[cache_key] = SentenceTransformer(
+                self.name,
+                device=self.device,
+                trust_remote_code=self.trust_remote_code,
+                config_kwargs={"use_memory_efficient_attention": False},
+            )
+        return _st_model_cache[cache_key]
 
 
 def get_embedding_function():

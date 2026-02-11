@@ -23,6 +23,9 @@ lancedb_data/
 .claude/
 .serena/
 
+# Presentations
+rag_intro_presentation/
+
 # Data files (users add their own, keep directory structure)
 data/*
 !data/.gitkeep

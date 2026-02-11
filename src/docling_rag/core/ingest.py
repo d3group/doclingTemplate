@@ -1,5 +1,6 @@
 """Document ingestion pipeline using Docling and LanceDB."""
 
+import gc
 import hashlib
 import json
 import logging
@@ -64,6 +65,17 @@ SUPPORTED_EXTENSIONS = DOCUMENT_EXTENSIONS | TEXT_EXTENSIONS
 _converter: DocumentConverter | None = None
 _chunker: HybridChunker | None = None
 _chunker_model: str | None = None
+
+
+def _flush_gpu_cache() -> None:
+    """Free MPS/CUDA GPU memory between file processing to prevent OOM."""
+    import torch
+
+    gc.collect()
+    if torch.backends.mps.is_available():
+        torch.mps.empty_cache()
+    elif torch.cuda.is_available():
+        torch.cuda.empty_cache()
 
 
 def get_file_hash(file_path: Path) -> str:
@@ -607,6 +619,9 @@ def ingest_documents(data_dir: Path | str | None = None, verbose: bool = True) -
         chunks_added += _process_single_file(
             file_path, source_key, table, converter, chunker, verbose
         )
+
+        # Free MPS GPU memory between files to prevent OOM accumulation
+        _flush_gpu_cache()
 
         # Save hashes incrementally after each file to prevent data loss on crash
         save_hashes(current_hashes)
