@@ -16,7 +16,7 @@ from transformers import AutoTokenizer
 from transformers import logging as tf_logging
 
 from docling_rag.core.config import get_config
-from docling_rag.core.db import get_table
+from docling_rag.core.db import escape_source, get_table
 
 logger = logging.getLogger(__name__)
 
@@ -243,7 +243,7 @@ def _get_source_key(file_path: Path, data_dir: Path | None) -> str:
 def get_documents_to_process(
     data_dir: Path,
     use_absolute_paths: bool = False,
-) -> tuple[list[Path], list[str], dict[str, str]]:
+) -> tuple[list[Path], list[str], dict[str, str], dict[str, str]]:
     """
     Determine which documents in a directory need processing.
 
@@ -254,10 +254,12 @@ def get_documents_to_process(
     Returns:
         - new_or_changed: Files that need to be (re)processed
         - deleted: File paths that were removed and need cleanup
-        - current_hashes: Hash mapping for all current files
+        - current_hashes: Hash mapping for unchanged files (safe to persist)
+        - pending_hashes: Hash mapping for new/changed files (persist only after processing)
     """
     old_hashes = load_hashes()
     current_hashes: dict[str, str] = {}
+    pending_hashes: dict[str, str] = {}
     new_or_changed: list[Path] = []
 
     # Carry forward hashes for external files (absolute paths) since they're
@@ -279,28 +281,47 @@ def get_documents_to_process(
                 source_key = str(file_path.relative_to(data_dir))
 
             file_hash = get_file_hash(file_path)
-            current_hashes[source_key] = file_hash
 
             # Check if new or changed
             if source_key not in old_hashes or old_hashes[source_key] != file_hash:
+                pending_hashes[source_key] = file_hash
                 new_or_changed.append(file_path)
+            else:
+                current_hashes[source_key] = file_hash
 
     # Only detect deletions for the default data/ folder (relative paths)
     # External directories use absolute paths and don't trigger deletions
     if not use_absolute_paths:
         deleted = [
-            path for path in old_hashes if not path.startswith("/") and path not in current_hashes
+            path
+            for path in old_hashes
+            if not path.startswith("/")
+            and path not in current_hashes
+            and path not in pending_hashes
         ]
     else:
         deleted = []
 
-    return new_or_changed, deleted, current_hashes
+    return new_or_changed, deleted, current_hashes, pending_hashes
 
 
 def _get_converter() -> DocumentConverter:
     """Get or create the cached document converter."""
     global _converter
     if _converter is None:
+        import os
+
+        from docling.datamodel.accelerator_options import AcceleratorOptions
+        from docling.datamodel.pipeline_options import PdfPipelineOptions
+        from docling.document_converter import PdfFormatOption
+
+        config = get_config()
+        num_threads = config.pipeline_num_threads
+
+        pipeline_options = PdfPipelineOptions()
+        pipeline_options.accelerator_options = AcceleratorOptions(num_threads=num_threads)
+        os.environ.setdefault("OMP_NUM_THREADS", str(num_threads))
+
         _converter = DocumentConverter(
             allowed_formats=[
                 InputFormat.PDF,
@@ -310,7 +331,10 @@ def _get_converter() -> DocumentConverter:
                 InputFormat.HTML,
                 InputFormat.IMAGE,
                 InputFormat.MD,
-            ]
+            ],
+            format_options={
+                InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_options),
+            },
         )
     return _converter
 
@@ -363,7 +387,7 @@ def _build_fts_index(table) -> None:
     """Create or rebuild the full-text search index on the text column."""
     try:
         table.create_fts_index("text", replace=True)
-    except Exception:
+    except (RuntimeError, OSError):
         logger.debug("Failed to create FTS index", exc_info=True)
 
 
@@ -386,7 +410,7 @@ def _process_single_file(
         Number of chunks added
     """
     # Remove old chunks for this file (if re-processing)
-    table.delete(f"source = '{source_key}'")
+    table.delete(f"source = '{escape_source(source_key)}'")
 
     try:
         cached_md = _read_markdown_cache(source_key) if use_cache else None
@@ -449,7 +473,9 @@ def _process_single_file(
 
             # Use cached markdown or export from parsed doc
             doc_md = cached_md or result.document.export_to_markdown()
-            chunk_texts = contextualize_chunks(chunk_texts, doc_md)
+            chunk_texts = contextualize_chunks(
+                chunk_texts, doc_md, max_workers=config.contextual_workers
+            )
             if verbose:
                 logger.info("  Applied contextual retrieval to %d chunks", len(chunks))
 
@@ -581,7 +607,7 @@ def ingest_documents(data_dir: Path | str | None = None, verbose: bool = True) -
         data_dir.mkdir(parents=True)
 
     # Get documents to process
-    new_or_changed, deleted, current_hashes = get_documents_to_process(
+    new_or_changed, deleted, current_hashes, pending_hashes = get_documents_to_process(
         data_dir, use_absolute_paths=use_absolute_paths
     )
 
@@ -600,7 +626,7 @@ def ingest_documents(data_dir: Path | str | None = None, verbose: bool = True) -
     for source_path in deleted:
         if verbose:
             logger.info("Removing chunks for deleted file: %s", source_path)
-        table.delete(f"source = '{source_path}'")
+        table.delete(f"source = '{escape_source(source_path)}'")
         _delete_markdown_cache(source_path)
 
     converter = _get_converter()
@@ -616,15 +642,18 @@ def ingest_documents(data_dir: Path | str | None = None, verbose: bool = True) -
         if verbose:
             logger.info("Processing: %s", source_key)
 
-        chunks_added += _process_single_file(
+        result = _process_single_file(
             file_path, source_key, table, converter, chunker, verbose
         )
+        chunks_added += result
 
         # Free MPS GPU memory between files to prevent OOM accumulation
         _flush_gpu_cache()
 
-        # Save hashes incrementally after each file to prevent data loss on crash
-        save_hashes(current_hashes)
+        # Only mark as processed if chunks were actually added
+        if result > 0:
+            current_hashes[source_key] = pending_hashes[source_key]
+            save_hashes(current_hashes)
 
     # Build FTS index after all files are processed
     if chunks_added > 0 or deleted:

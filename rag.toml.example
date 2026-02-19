@@ -35,10 +35,17 @@ enable_hybrid_search = true
 # Contextual retrieval: prepend LLM-generated context to each chunk at ingestion time.
 # Requires Ollama running locally. Falls back gracefully if unavailable.
 # See: https://www.anthropic.com/news/contextual-retrieval
-enable_contextual_retrieval = false
+enable_contextual_retrieval = true
 
 # Ollama model for chunk contextualization (small model recommended)
 ollama_model = "qwen2.5:1.5b"
 
 # Ollama API base URL
 ollama_base_url = "http://localhost:11434"
+
+# Number of parallel Ollama requests for chunk contextualization (I/O-bound)
+contextual_workers = 4
+
+# Number of Docling pipeline threads (also sets OMP_NUM_THREADS)
+# Lower values reduce CPU contention; 2 gives same speed with less system impact
+pipeline_num_threads = 2

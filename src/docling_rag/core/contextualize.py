@@ -6,6 +6,7 @@ ingestion time, not per query.
 """
 
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import httpx
 
@@ -48,7 +49,7 @@ def _call_ollama(prompt: str) -> str | None:
     except httpx.ConnectError:
         logger.warning("Ollama not reachable at %s -- skipping contextualization", url)
         return None
-    except Exception:
+    except (httpx.HTTPStatusError, httpx.TimeoutException):
         logger.debug("Ollama call failed", exc_info=True)
         return None
 
@@ -80,24 +81,35 @@ def contextualize_chunk(chunk_text: str, full_document_md: str) -> str:
 def contextualize_chunks(
     chunk_texts: list[str],
     full_document_md: str,
+    max_workers: int = 4,
 ) -> list[str]:
     """
     Generate contextualized versions of multiple chunks from the same document.
 
+    Ollama HTTP calls are I/O-bound, so threads parallelize them effectively.
+
     Args:
         chunk_texts: List of raw chunk texts
         full_document_md: The full document markdown for context
+        max_workers: Number of parallel Ollama requests
 
     Returns:
         List of contextualized chunk texts (same length as input)
     """
-    results = []
-    for i, text in enumerate(chunk_texts):
-        result = contextualize_chunk(text, full_document_md)
-        if result != text:
-            logger.debug("Contextualized chunk %d/%d", i + 1, len(chunk_texts))
-        results.append(result)
-    return results
+    results: list[str | None] = [None] * len(chunk_texts)
+
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        futures = {
+            pool.submit(contextualize_chunk, text, full_document_md): i
+            for i, text in enumerate(chunk_texts)
+        }
+        for future in as_completed(futures):
+            idx = futures[future]
+            results[idx] = future.result()
+            if results[idx] != chunk_texts[idx]:
+                logger.debug("Contextualized chunk %d/%d", idx + 1, len(chunk_texts))
+
+    return results  # type: ignore[return-value]
 
 
 def is_ollama_available() -> bool:
@@ -106,5 +118,5 @@ def is_ollama_available() -> bool:
     try:
         response = httpx.get(f"{config.ollama_base_url}/api/tags", timeout=5.0)
         return response.status_code == 200
-    except Exception:
+    except httpx.HTTPError:
         return False
