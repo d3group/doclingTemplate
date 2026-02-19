@@ -47,5 +47,5 @@ ollama_base_url = "http://localhost:11434"
 contextual_workers = 4
 
 # Number of Docling pipeline threads (also sets OMP_NUM_THREADS)
-# Lower values reduce CPU contention; 2 gives same speed with less system impact
+# Lower values reduce CPU contention
 pipeline_num_threads = 2
