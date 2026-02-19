@@ -20,6 +20,11 @@ dependencies = [
 docling-rag = "docling_rag.cli:main"
 docling-rag-mcp = "docling_rag.mcp:run_server"
 
+[project.optional-dependencies]
+test = [
+    "mineru[core]>=2.7.6",
+]
+
 [build-system]
 requires = ["uv_build>=0.8.15,<0.9.0"]
 build-backend = "uv_build"

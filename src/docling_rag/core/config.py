@@ -22,9 +22,12 @@ class RAGConfig:
     # Hybrid search
     enable_hybrid_search: bool = True
     # Contextual retrieval (requires Ollama)
-    enable_contextual_retrieval: bool = False
+    enable_contextual_retrieval: bool = True
     ollama_model: str = "qwen2.5:1.5b"
     ollama_base_url: str = "http://localhost:11434"
+    contextual_workers: int = 4
+    # Pipeline performance
+    pipeline_num_threads: int = 2
 
     @classmethod
     def load(cls, path: Path | None = None) -> "RAGConfig":

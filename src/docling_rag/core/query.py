@@ -3,7 +3,7 @@
 import logging
 
 from docling_rag.core.config import get_config
-from docling_rag.core.db import get_table
+from docling_rag.core.db import escape_source, get_table
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +19,6 @@ def query(
     question: str,
     n_results: int | None = None,
     source_filter: str | None = None,
-    where: dict | None = None,
 ) -> list[dict]:
     """
     Query the knowledge base and return relevant chunks with sources.
@@ -28,7 +27,6 @@ def query(
         question: The query string
         n_results: Number of results to return (defaults to config value)
         source_filter: Optional source file path to restrict results to
-        where: Optional where clause dict (unused, kept for API compat)
 
     Returns:
         List of dicts with keys: text, source, page (if available), distance
@@ -52,7 +50,7 @@ def query(
     if query_type == "hybrid":
         try:
             search = table.search(question, query_type="hybrid")
-        except Exception:
+        except (ValueError, RuntimeError, FileNotFoundError, OSError):
             # FTS index may not exist yet, fall back to vector search
             logger.debug("FTS index not available, falling back to vector search")
             search = table.search(question, query_type="vector")
@@ -61,7 +59,7 @@ def query(
 
     # Apply source filter
     if source_filter:
-        search = search.where(f"source = '{source_filter}'")
+        search = search.where(f"source = '{escape_source(source_filter)}'")
 
     # Determine how many candidates to fetch
     fetch_limit = config.rerank_candidates if config.enable_reranking else n_results
@@ -71,7 +69,7 @@ def query(
         try:
             reranker = _get_reranker()
             search = search.rerank(reranker=reranker)
-        except Exception:
+        except (ValueError, RuntimeError, ImportError, OSError):
             logger.debug("Reranking failed, returning raw results")
 
     results = search.limit(fetch_limit).to_list()
@@ -170,7 +168,7 @@ def delete_source(source: str) -> bool:
 
     # Check if source exists
     count_before = table.count_rows()
-    table.delete(f"source = '{source}'")
+    table.delete(f"source = '{escape_source(source)}'")
     count_after = table.count_rows()
 
     return count_after < count_before

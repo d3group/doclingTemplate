@@ -18,9 +18,10 @@ def test_default_config():
     assert config.enable_reranking is True
     assert config.rerank_candidates == 20
     assert config.enable_hybrid_search is True
-    assert config.enable_contextual_retrieval is False
+    assert config.enable_contextual_retrieval is True
     assert config.ollama_model == "qwen2.5:1.5b"
     assert config.ollama_base_url == "http://localhost:11434"
+    assert config.contextual_workers == 4
 
 
 def test_config_from_toml(tmp_path):
