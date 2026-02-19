@@ -26,6 +26,9 @@ lancedb_data/
 # Presentations
 rag_intro_presentation/
 
+# Test output artifacts
+test_results/
+
 # Data files (users add their own, keep directory structure)
 data/*
 !data/.gitkeep

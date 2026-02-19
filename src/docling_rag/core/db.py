@@ -92,3 +92,11 @@ def reset_clients() -> None:
     """Reset cached DB connection (useful for testing)."""
     global _db
     _db = None
+
+
+def escape_source(value: str) -> str:
+    """Escape a source string for use in LanceDB SQL where/delete clauses.
+
+    Doubles single quotes to prevent broken queries from paths like "O'Brien.pdf".
+    """
+    return value.replace("'", "''")
