@@ -90,6 +90,43 @@ Create a `.mcp.json` in the other project pointing back to this one:
 }
 ```
 
+### Remote Server (via SSH)
+
+If the MCP server is running on a remote machine, you can connect to it over SSH. The MCP protocol uses stdio, so SSH transparently tunnels the connection.
+
+**1. Set up SSH key authentication** (so no password prompt blocks the connection):
+
+```bash
+ssh-keygen -t ed25519          # skip if you already have a key
+ssh-copy-id user@your-server
+```
+
+**2. Create `.mcp.json`** in your local project:
+
+```json
+{
+  "mcpServers": {
+    "docling-rag": {
+      "command": "ssh",
+      "args": [
+        "user@your-server",
+        "cd /path/to/doclingTemplate && uv run docling-rag-mcp"
+      ]
+    }
+  }
+}
+```
+
+Replace `user@your-server` and `/path/to/doclingTemplate` with your values. If `uv` isn't in the remote PATH, use its full path (e.g. `~/.local/bin/uv`).
+
+**3. Verify** the SSH command works before starting Claude Code:
+
+```bash
+ssh user@your-server "cd /path/to/doclingTemplate && uv run docling-rag-mcp"
+```
+
+If it hangs waiting for input, the server is running correctly (it's waiting for JSON-RPC commands over stdin).
+
 ### Claude Desktop
 
 Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
